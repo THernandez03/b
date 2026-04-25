@@ -1,6 +1,6 @@
 /// Returns the Bun target string for the current platform,
 /// e.g. "linux-x64", "darwin-aarch64", "windows-x64".
-pub fn target() -> &'static str {
+pub const fn target() -> &'static str {
     #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
     return "linux-x64";
     #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
@@ -14,35 +14,88 @@ pub fn target() -> &'static str {
     #[cfg(all(target_os = "windows", target_arch = "aarch64"))]
     return "windows-aarch64";
     #[cfg(not(any(
-        all(target_os = "linux", any(target_arch = "x86_64", target_arch = "aarch64")),
-        all(target_os = "macos", any(target_arch = "x86_64", target_arch = "aarch64")),
-        all(target_os = "windows", any(target_arch = "x86_64", target_arch = "aarch64")),
+        all(
+            target_os = "linux",
+            any(target_arch = "x86_64", target_arch = "aarch64")
+        ),
+        all(
+            target_os = "macos",
+            any(target_arch = "x86_64", target_arch = "aarch64")
+        ),
+        all(
+            target_os = "windows",
+            any(target_arch = "x86_64", target_arch = "aarch64")
+        ),
     )))]
     return "linux-x64"; // fallback
 }
 
 /// Download URL for a specific Bun release tag and target.
-/// If tag is "latest" or empty, uses the latest release endpoint.
+/// `tag` must be a resolved GitHub release tag like `bun-v1.2.3` or `canary`.
 pub fn download_url(tag: &str, tgt: &str) -> String {
     let base = "https://github.com/oven-sh/bun/releases";
-    if tag == "latest" || tag.is_empty() {
-        format!("{}/latest/download/bun-{}.zip", base, tgt)
+    if tag == "canary" {
+        // Canary builds live under a special "canary" release on GitHub.
+        format!("{base}/download/canary/bun-{tgt}.zip")
     } else {
-        // Normalize: allow "1.1.0" or "bun-v1.1.0"
-        let normalized = normalize_tag(tag);
-        format!("{}/download/{}/bun-{}.zip", base, normalized, tgt)
+        format!("{base}/download/{tag}/bun-{tgt}.zip")
     }
 }
 
-/// Normalize a version string to a Bun release tag like "bun-v1.1.0".
-pub fn normalize_tag(tag: &str) -> String {
-    if tag.starts_with("bun-v") {
-        tag.to_string()
-    } else if tag.starts_with('v') {
-        format!("bun-{}", tag)
-    } else if tag == "canary" || tag == "latest" {
-        tag.to_string()
-    } else {
-        format!("bun-v{}", tag)
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ── target() ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn target_is_non_empty() {
+        assert!(!target().is_empty());
+    }
+
+    #[test]
+    fn target_has_valid_format() {
+        let t = target();
+        let valid = [
+            "linux-x64",
+            "linux-aarch64",
+            "darwin-x64",
+            "darwin-aarch64",
+            "windows-x64",
+            "windows-aarch64",
+        ];
+        assert!(valid.contains(&t), "unexpected target: {t}");
+    }
+
+    // ── download_url() ───────────────────────────────────────────────────────
+
+    #[test]
+    fn download_url_canary_tag() {
+        let url = download_url("canary", "linux-x64");
+        assert!(
+            url.contains("/download/canary/bun-linux-x64.zip"),
+            "unexpected url: {url}"
+        );
+    }
+
+    #[test]
+    fn download_url_versioned_tag() {
+        let url = download_url("bun-v1.1.0", "darwin-aarch64");
+        assert!(
+            url.contains("/download/bun-v1.1.0/bun-darwin-aarch64.zip"),
+            "unexpected url: {url}"
+        );
+    }
+
+    #[test]
+    fn download_url_starts_with_github() {
+        let url = download_url("bun-v1.0.0", "linux-x64");
+        assert!(url.starts_with("https://github.com/oven-sh/bun/releases"));
+    }
+
+    #[test]
+    fn download_url_ends_with_zip() {
+        let url = download_url("bun-v1.0.0", "linux-x64");
+        assert!(url.to_ascii_lowercase().ends_with(".zip"));
     }
 }

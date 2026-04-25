@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 use std::fs;
 use std::io::{self, BufWriter, Read, Write};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::Command;
 
 use crate::{arch, cache, releases, symlink};
@@ -9,26 +9,19 @@ use crate::{arch, cache, releases, symlink};
 /// Install a Bun version and activate it.
 pub fn install(version_str: &str) -> Result<()> {
     let tag = releases::resolve_tag(version_str)?;
-    let display_tag = if tag == "latest" {
-        // Treat "latest" as a special always-fresh slot
-        "latest".to_string()
-    } else {
-        tag.clone()
-    };
 
-    // For "latest", always re-download to ensure freshness
-    if display_tag != "latest" && cache::is_cached(&display_tag) {
-        println!("Version {} is already cached, activating...", display_tag);
+    if cache::is_cached(&tag) {
+        println!("Version {tag} is already cached, activating...");
     } else {
-        println!("Downloading Bun {}...", display_tag);
+        println!("Downloading Bun {tag}...");
         let tgt = arch::target();
         let url = arch::download_url(&tag, tgt);
-        download_version(&url, &display_tag)?;
+        download_version(&url, &tag)?;
     }
 
-    println!("Activating Bun {}...", display_tag);
-    symlink::activate(&display_tag)?;
-    println!("Installed Bun {} successfully.", display_tag);
+    println!("Activating Bun {tag}...");
+    symlink::activate(&tag)?;
+    println!("Installed Bun {tag} successfully.");
     Ok(())
 }
 
@@ -36,10 +29,10 @@ pub fn install(version_str: &str) -> Result<()> {
 pub fn download_only(version_str: &str) -> Result<()> {
     let tag = releases::resolve_tag(version_str)?;
     if cache::is_cached(&tag) {
-        println!("Version {} is already cached.", tag);
+        println!("Version {tag} is already cached.");
         return Ok(());
     }
-    println!("Downloading Bun {}...", tag);
+    println!("Downloading Bun {tag}...");
     let tgt = arch::target();
     let url = arch::download_url(&tag, tgt);
     download_version(&url, &tag)
@@ -50,7 +43,7 @@ pub fn run(version_str: &str, args: &[String]) -> Result<()> {
     let tag = releases::resolve_tag(version_str)?;
 
     if !cache::is_cached(&tag) {
-        println!("Version {} is not cached. Downloading...", tag);
+        println!("Version {tag} is not cached. Downloading...");
         let tgt = arch::target();
         let url = arch::download_url(&tag, tgt);
         download_version(&url, &tag)?;
@@ -60,7 +53,7 @@ pub fn run(version_str: &str, args: &[String]) -> Result<()> {
     let status = Command::new(&binary)
         .args(args)
         .status()
-        .with_context(|| format!("Failed to run bun {}", tag))?;
+        .with_context(|| format!("Failed to run bun {tag}"))?;
 
     if !status.success() {
         std::process::exit(status.code().unwrap_or(1));
@@ -82,6 +75,13 @@ fn download_version(url: &str, tag: &str) -> Result<()> {
             .send()
             .context("HTTP request failed")?;
 
+        if !resp.status().is_success() {
+            let status = resp.status();
+            // Clean up the empty dest dir we just created.
+            fs::remove_dir_all(&dest_dir).ok();
+            anyhow::bail!("Download failed: server returned HTTP {status} for {url}");
+        }
+
         let total = resp.content_length().unwrap_or(0);
         let file = fs::File::create(&tmp_path).context("Failed to create temp file")?;
         let mut writer = BufWriter::new(file);
@@ -95,9 +95,8 @@ fn download_version(url: &str, tag: &str) -> Result<()> {
             }
             writer.write_all(&buf[..n])?;
             downloaded += n as u64;
-            if total > 0 {
-                let pct = downloaded * 100 / total;
-                print!("\r  {}/{} bytes ({}%)", downloaded, total, pct);
+            if let Some(pct) = downloaded.saturating_mul(100).checked_div(total) {
+                print!("\r  {downloaded}/{total} bytes ({pct}%)");
                 io::stdout().flush()?;
             }
         }
@@ -132,7 +131,7 @@ fn extract_zip(archive: &Path, dest: &Path) -> Result<()> {
     Ok(())
 }
 
-/// Bun zip layout: bun-{target}/bun   => we want just `bun` in dest_dir.
+/// Bun zip layout: bun-{target}/bun   => we want just `bun` in `dest_dir`.
 fn flatten_bun_dir(dir: &Path) -> Result<()> {
     let entries: Vec<_> = fs::read_dir(dir)?.collect::<std::io::Result<_>>()?;
     if entries.len() == 1 && entries[0].path().is_dir() {
