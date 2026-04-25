@@ -34,12 +34,13 @@ pub const fn target() -> &'static str {
 /// `tag` must be a resolved GitHub release tag like `bun-v1.2.3` or `canary`.
 pub fn download_url(tag: &str, tgt: &str) -> String {
     let base = "https://github.com/oven-sh/bun/releases";
-    if tag == "canary" {
-        // Canary builds live under a special "canary" release on GitHub.
-        format!("{base}/download/canary/bun-{tgt}.zip")
+    // Cache keys for canary are "canary-{sha}"; the download release tag is always "canary".
+    let release_tag = if tag == "canary" || tag.starts_with("canary-") {
+        "canary"
     } else {
-        format!("{base}/download/{tag}/bun-{tgt}.zip")
-    }
+        tag
+    };
+    format!("{base}/download/{release_tag}/bun-{tgt}.zip")
 }
 
 #[cfg(test)]

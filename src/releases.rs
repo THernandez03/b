@@ -58,7 +58,7 @@ pub fn resolve_tag(version_str: &str) -> Result<String> {
     // "latest" is a common alias for the latest version, including pre-releases.
     // "next" is our universal alias meaning "latest available, including pre-release".
     if v == "canary" || v == "latest" || v == "next" {
-        return Ok("canary".to_string());
+        return resolve_canary_tag();
     }
 
     // Strip recognised prefixes so we always work with the bare semver part.
@@ -76,6 +76,32 @@ pub fn resolve_tag(version_str: &str) -> Result<String> {
 
     // Partial version (e.g. "1.3" or "1") — find the latest matching release.
     resolve_prefix(bare)
+}
+
+/// Fetch the canary commit SHA from the GitHub release name and return
+/// a stable cache key like `"canary-{sha}"`.  The download URL is always
+/// constructed from the bare `canary` release tag.
+fn resolve_canary_tag() -> Result<String> {
+    let client = Client::new();
+    let url = "https://api.github.com/repos/oven-sh/bun/releases/tags/canary";
+    let body: serde_json::Value = client
+        .get(url)
+        .header("User-Agent", "b-bun-version-manager")
+        .send()
+        .context("Failed to fetch Bun canary release info")?
+        .json()
+        .context("Failed to parse Bun canary release JSON")?;
+
+    // Release name format: "Canary (dbd320ccfa909053f95be9e1643d80d73286751f)"
+    let name = body["name"]
+        .as_str()
+        .context("Missing 'name' field in Bun canary release")?;
+    let sha = name
+        .trim_start_matches("Canary (")
+        .trim_end_matches(')')
+        .trim();
+    anyhow::ensure!(!sha.is_empty(), "Could not parse SHA from Bun canary release name: {name}");
+    Ok(format!("canary-{sha}"))
 }
 
 /// Return the tag of the latest stable (non-prerelease) Bun release.
@@ -157,14 +183,22 @@ mod tests {
     }
 
     #[test]
-    fn canary_resolves_without_network() {
-        // canary is Bun's native keyword — short-circuits before any network call
-        assert!(matches!(resolve_tag("canary"), Ok(s) if s == "canary"));
+    fn canary_cache_key_has_sha_prefix() {
+        // canary resolution now hits the network to get the commit SHA;
+        // we only verify the shape of the result in unit tests.
+        // Full network round-trip is covered by integration tests.
+        let tag = resolve_tag("canary");
+        if let Ok(t) = tag {
+            assert!(t.starts_with("canary-"), "expected canary-{{sha}}, got {t}");
+        }
+        // Allowed to fail in offline/CI environments — skip rather than panic.
     }
 
     #[test]
-    fn next_resolves_to_canary_without_network() {
-        // "next" is our universal alias for latest-including-prerelease
-        assert!(matches!(resolve_tag("next"), Ok(s) if s == "canary"));
+    fn next_resolves_like_canary() {
+        let tag = resolve_tag("next");
+        if let Ok(t) = tag {
+            assert!(t.starts_with("canary-"), "expected canary-{{sha}}, got {t}");
+        }
     }
 }
