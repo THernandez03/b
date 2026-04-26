@@ -73,7 +73,7 @@ pub fn active_version() -> Option<String> {
 }
 
 /// Remove the active `~/.b/bin` directory symlink (does not remove cache).
-pub fn uninstall() -> Result<()> {
+pub fn uninstall() {
     let bin = bin_dir();
 
     if bin.symlink_metadata().is_ok() {
@@ -85,8 +85,6 @@ pub fn uninstall() -> Result<()> {
 
     let marker = prefix().join(".active");
     fs::remove_file(marker).ok();
-
-    Ok(())
 }
 
 #[cfg(test)]
@@ -193,7 +191,7 @@ mod tests {
         fs::write(ver_dir.join("bun"), b"#!/bin/sh").unwrap();
         activate(tag).unwrap();
 
-        uninstall().unwrap();
+        uninstall();
 
         let link = tp.dir.join("bin").join("bun");
         assert!(!link.exists() && link.symlink_metadata().is_err());
@@ -203,6 +201,6 @@ mod tests {
     #[test]
     fn uninstall_ok_when_nothing_installed() {
         let _tp = TempPrefix::new("uninstall_empty");
-        assert!(uninstall().is_ok());
+        uninstall(); // always succeeds, silently ignores missing files
     }
 }

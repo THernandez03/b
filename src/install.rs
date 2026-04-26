@@ -109,7 +109,7 @@ fn download_version(url: &str, tag: &str) -> Result<()> {
     // Bun zips contain a single directory bun-{target}/bun — flatten it
     flatten_bun_dir(&dest_dir)?;
 
-    // Make binary executable on Unix
+    // Make binary executable on Unix and create bunx symlink
     #[cfg(unix)]
     {
         let binary = cache::bun_binary(tag);
@@ -118,6 +118,22 @@ fn download_version(url: &str, tag: &str) -> Result<()> {
             let mut perms = fs::metadata(&binary)?.permissions();
             perms.set_mode(0o755);
             fs::set_permissions(&binary, perms)?;
+        }
+
+        // bunx is just bun under a different name
+        let bunx = dest_dir.join("bunx");
+        if !bunx.exists() {
+            std::os::unix::fs::symlink("bun", &bunx)
+                .context("Failed to create bunx symlink")?;
+        }
+    }
+    #[cfg(windows)]
+    {
+        // On Windows, create bunx.exe as a copy of bun.exe
+        let binary = dest_dir.join("bun.exe");
+        let bunx = dest_dir.join("bunx.exe");
+        if binary.exists() && !bunx.exists() {
+            fs::copy(&binary, &bunx).context("Failed to create bunx.exe")?;
         }
     }
 
