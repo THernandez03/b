@@ -100,7 +100,7 @@ mod diagnostics {
     use crate::{cache, symlink};
 
     pub fn doctor() {
-        println!("b \u2014 Bun version manager diagnostics");
+        println!("b — Bun version manager diagnostics");
         println!();
 
         let prefix = symlink::prefix();
