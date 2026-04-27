@@ -10,6 +10,11 @@ use crate::{arch, cache, releases, symlink};
 pub fn install(version_str: &str) -> Result<()> {
     let tag = releases::resolve_tag(version_str)?;
 
+    if symlink::active_version().as_deref() == Some(&tag) {
+        println!("Bun {tag} is already the active version.");
+        return Ok(());
+    }
+
     if cache::is_cached(&tag) {
         println!("Version {tag} is already cached, activating...");
     } else {
