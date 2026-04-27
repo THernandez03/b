@@ -4,6 +4,8 @@ use std::io::{self, BufWriter, Read, Write};
 use std::path::Path;
 use std::process::Command;
 
+use console::style;
+
 use crate::{arch, cache, releases, symlink};
 
 /// Install a Bun version and activate it.
@@ -11,22 +13,42 @@ pub fn install(version_str: &str) -> Result<()> {
     let tag = releases::resolve_tag(version_str)?;
 
     if symlink::active_version().as_deref() == Some(&tag) {
-        println!("Bun {tag} is already the active version.");
+        println!(
+            "{} Bun {} is already the active version.",
+            style("✓").green().bold(),
+            style(&tag).cyan().bold(),
+        );
         return Ok(());
     }
 
     if cache::is_cached(&tag) {
-        println!("Version {tag} is already cached, activating...");
+        println!(
+            "{} Bun {} is already cached.",
+            style("◆").dim(),
+            style(&tag).cyan(),
+        );
     } else {
-        println!("Downloading Bun {tag}...");
+        println!(
+            "{} Downloading Bun {}...",
+            style("⬇").cyan(),
+            style(&tag).cyan().bold(),
+        );
         let tgt = arch::target();
         let url = arch::download_url(&tag, tgt);
         download_version(&url, &tag)?;
     }
 
-    println!("Activating Bun {tag}...");
+    println!(
+        "{} Activating Bun {}...",
+        style("◆").magenta(),
+        style(&tag).cyan().bold(),
+    );
     symlink::activate(&tag)?;
-    println!("Installed Bun {tag} successfully.");
+    println!(
+        "{} Installed Bun {} successfully.",
+        style("✓").green().bold(),
+        style(&tag).cyan().bold(),
+    );
     Ok(())
 }
 
