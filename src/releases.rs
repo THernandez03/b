@@ -37,10 +37,8 @@ fn fetch_releases(per_page: u32) -> Result<Vec<GhRelease>> {
 /// Resolve a user-supplied version string to an exact GitHub release tag.
 ///
 /// Universal aliases (project-specific meanings take priority):
-/// - `"lts"` → latest **stable** release (Bun has no separate LTS channel)
-/// - `"latest"` / `""` → latest stable release
-/// - `"canary"` → Bun's own canary channel (pre-release dev build) — project-native
-/// - `"next"` → alias for canary (latest available, even if pre-release)
+/// - `"lts"` / `"stable"` → latest **stable** release (Bun has no separate LTS channel)
+/// - `"canary"` / `"latest"` / `"next"` / `"nightly"` / `"edge"` → Bun canary channel (pre-release dev build)
 ///
 /// Version inputs:
 /// - `"1.3"` / `"v1.3"` / `"1.3.x"` → latest stable release matching `bun-v1.3.*`
@@ -54,10 +52,8 @@ pub fn resolve_tag(version_str: &str) -> Result<String> {
         return resolve_latest_stable();
     }
 
-    // "canary" is Bun's own keyword for its nightly/dev channel.
-    // "latest" is a common alias for the latest version, including pre-releases.
-    // "next" is our universal alias meaning "latest available, including pre-release".
-    if v == "canary" || v == "latest" || v == "next" {
+    // Canary/nightly aliases — all map to Bun's canary dev channel.
+    if v == "canary" || v == "latest" || v == "next" || v == "nightly" || v == "edge" {
         return resolve_canary_tag();
     }
 
@@ -197,6 +193,22 @@ mod tests {
     #[test]
     fn next_resolves_like_canary() {
         let tag = resolve_tag("next");
+        if let Ok(t) = tag {
+            assert!(t.starts_with("canary-"), "expected canary-{{sha}}, got {t}");
+        }
+    }
+
+    #[test]
+    fn nightly_resolves_like_canary() {
+        let tag = resolve_tag("nightly");
+        if let Ok(t) = tag {
+            assert!(t.starts_with("canary-"), "expected canary-{{sha}}, got {t}");
+        }
+    }
+
+    #[test]
+    fn edge_resolves_like_canary() {
+        let tag = resolve_tag("edge");
         if let Ok(t) = tag {
             assert!(t.starts_with("canary-"), "expected canary-{{sha}}, got {t}");
         }
