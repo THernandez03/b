@@ -38,11 +38,20 @@ pub fn install(version_str: &str) -> Result<()> {
         download_version(&url, &tag)?;
     }
 
-    println!(
-        "{} Activating Bun {}...",
-        style("◆").magenta(),
-        style(&tag).cyan().bold(),
-    );
+    let from = symlink::active_version();
+    match &from {
+        Some(f) => println!(
+            "{} Activating Bun {} → {}...",
+            style("◆").magenta(),
+            style(f).cyan().bold(),
+            style(&tag).cyan().bold(),
+        ),
+        None => println!(
+            "{} Activating Bun {}...",
+            style("◆").magenta(),
+            style(&tag).cyan().bold(),
+        ),
+    }
     symlink::activate(&tag)?;
     println!(
         "{} Installed Bun {} successfully.",
