@@ -74,13 +74,13 @@ pub fn resolve_tag(version_str: &str) -> Result<String> {
     resolve_prefix(bare)
 }
 
-/// Fetch the canary commit SHA from the GitHub release name and return
+/// Fetch the canary commit SHA from the GitHub release body and return
 /// a stable cache key like `"canary-{sha}"`.  The download URL is always
 /// constructed from the bare `canary` release tag.
 fn resolve_canary_tag() -> Result<String> {
     let client = Client::new();
     let url = "https://api.github.com/repos/oven-sh/bun/releases/tags/canary";
-    let body: serde_json::Value = client
+    let release: serde_json::Value = client
         .get(url)
         .header("User-Agent", "b-bun-version-manager")
         .send()
@@ -88,15 +88,31 @@ fn resolve_canary_tag() -> Result<String> {
         .json()
         .context("Failed to parse Bun canary release JSON")?;
 
-    // Release name format: "Canary (dbd320ccfa909053f95be9e1643d80d73286751f)"
-    let name = body["name"]
+    // The release body contains "This release of Bun corresponds to the commit: {sha}"
+    // where the sha may be wrapped in a markdown link: [{sha}]({url}).
+    // We parse from body rather than the name field because the name is pinned
+    // to a fixed hash and does not reflect the actual latest canary commit.
+    let release_body = release["body"]
         .as_str()
-        .context("Missing 'name' field in Bun canary release")?;
-    let sha = name
-        .trim_start_matches("Canary (")
-        .trim_end_matches(')')
-        .trim();
-    anyhow::ensure!(!sha.is_empty(), "Could not parse SHA from Bun canary release name: {name}");
+        .context("Missing 'body' field in Bun canary release")?;
+
+    let sha = release_body
+        .lines()
+        .find_map(|line| {
+            let rest = line
+                .trim()
+                .strip_prefix("This release of Bun corresponds to the commit: ")?;
+            // Handle optional markdown link: [d352dfd](https://...)
+            let sha = if rest.starts_with('[') {
+                rest.trim_start_matches('[').split(']').next()?
+            } else {
+                rest.split_whitespace().next()?
+            };
+            let sha = sha.trim();
+            (!sha.is_empty()).then(|| sha.to_string())
+        })
+        .context("Could not find commit SHA in Bun canary release body")?;
+
     Ok(format!("canary-{sha}"))
 }
 
