@@ -23,6 +23,18 @@
 
 ## Installation
 
+### Pre-built binary (no Rust required)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/THernandez03/b/main/install.sh | sh
+```
+
+This installs `b` to `~/.local/bin/b`. You can override the destination:
+
+```bash
+INSTALL_DIR=/usr/local/bin curl -fsSL https://raw.githubusercontent.com/THernandez03/b/main/install.sh | sh
+```
+
 ### From source (requires Rust)
 
 ```bash
@@ -40,7 +52,8 @@ Add `~/.b/bin` to your `PATH`:
 ```bash
 # bash / zsh
 export B_PREFIX="$HOME/.b"
-export PATH="$B_PREFIX/bin:$PATH"
+export PATH="$HOME/.local/bin:$PATH"  # for the b binary
+export PATH="$B_PREFIX/bin:$PATH"     # for managed Bun binaries
 ```
 
 Optional environment variables:
