@@ -104,6 +104,15 @@ b update
 b uninstall
 ```
 
+## Version Aliases
+
+| Alias    | Resolves to               |
+| -------- | ------------------------- |
+| `latest` | Latest stable release     |
+| `canary` | Latest canary build       |
+| `1.1`    | Latest patch in 1.1.x     |
+| `1`      | Latest release in major 1 |
+
 ## How It Works
 
 `b` downloads prebuilt Bun binaries from the [oven-sh/bun GitHub Releases](https://github.com/oven-sh/bun/releases), caches them under `~/.b/versions/<tag>/`, and creates a symlink at `~/.b/bin/bun` pointing to the selected version.
