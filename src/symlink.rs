@@ -174,5 +174,4 @@ mod tests {
         assert!(link.symlink_metadata().is_ok(), "symlink should exist");
         assert_eq!(active_version(), Some(tag.to_string()));
     }
-
 }
