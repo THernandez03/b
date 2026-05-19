@@ -1,7 +1,5 @@
 # b — Interactively Manage Your Bun Versions
 
-> Inspired by [tj/n](https://github.com/tj/n). Written in Rust.
-
 `b` is a simple, no-fuss Bun version manager. Download, cache, and switch between Bun versions with a single command.
 
 ## Features
@@ -15,11 +13,11 @@
 
 ## Supported Platforms
 
-| OS      | Architectures          |
-|---------|------------------------|
-| Linux   | x86_64, aarch64        |
-| macOS   | x86_64, aarch64        |
-| Windows | x86_64, aarch64        |
+| OS      | Architectures   |
+| ------- | --------------- |
+| Linux   | x86_64, aarch64 |
+| macOS   | x86_64, aarch64 |
+| Windows | x86_64, aarch64 |
 
 ## Installation
 
@@ -58,20 +56,18 @@ export PATH="$B_PREFIX/bin:$PATH"     # for managed Bun binaries
 
 Optional environment variables:
 
-| Variable      | Default        | Description                          |
-|---------------|----------------|--------------------------------------|
-| `B_PREFIX`    | `~/.b`         | Root installation prefix             |
-| `B_CACHE_DIR` | `~/.b/versions`| Where downloaded versions are stored |
+| Variable      | Default         | Description                          |
+| ------------- | --------------- | ------------------------------------ |
+| `B_PREFIX`    | `~/.b`          | Root installation prefix             |
+| `B_CACHE_DIR` | `~/.b/versions` | Where downloaded versions are stored |
 
 ## Usage
 
-```
-# Install a specific version
+```bash
+# Install and activate a version
 b 1.1.0
-b install 1.1.0
-b install bun-v1.1.0
-b install latest
-b install canary
+b latest
+b canary
 
 # Interactive picker from cached versions
 b
@@ -82,8 +78,8 @@ b ls
 # List recent remote releases
 b ls-remote
 
-# Download without activating
-b download 1.0.0
+# Fetch into cache without activating
+b fetch 1.0.0
 
 # Show path to a cached bun binary
 b which bun-v1.1.0
@@ -91,17 +87,21 @@ b which bun-v1.1.0
 # Run a specific version
 b run 1.1.0 -- --version
 
-# Remove a cached version
-b rm bun-v1.0.0
+# Remove a cached version (interactive picker if no version given)
+b remove bun-v1.0.0
+b rm bun-v1.0.0     # alias
 
 # Remove all cached versions except the active one
 b prune
 
-# Uninstall active Bun
-b uninstall
+# Show info
+b info
 
-# Diagnostics
-b doctor
+# Update b itself
+b update
+
+# Fully remove b + all cached versions (requires confirmation)
+b uninstall
 ```
 
 ## How It Works
@@ -112,12 +112,12 @@ No subshells. No profile setup. Just a symlink.
 
 ## Related Projects
 
-| Project | Runtime |
-|---------|---------|
+| Project                                | Runtime                 |
+| -------------------------------------- | ----------------------- |
 | [n](https://github.com/THernandez03/n) | Node.js version manager |
-| [z](https://github.com/THernandez03/z) | Zig version manager |
-| [d](https://github.com/THernandez03/d) | Deno version manager |
-| [r](https://github.com/THernandez03/r) | Rust version manager |
+| [z](https://github.com/THernandez03/z) | Zig version manager     |
+| [d](https://github.com/THernandez03/d) | Deno version manager    |
+| [r](https://github.com/THernandez03/r) | Rust version manager    |
 
 ## License
 

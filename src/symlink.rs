@@ -72,21 +72,6 @@ pub fn active_version() -> Option<String> {
         .map(|s| s.trim().to_string())
 }
 
-/// Remove the active `~/.b/bin` directory symlink (does not remove cache).
-pub fn uninstall() {
-    let bin = bin_dir();
-
-    if bin.symlink_metadata().is_ok() {
-        remove_bin_symlink(&bin);
-        println!("Removed active Bun installation.");
-    } else {
-        println!("No active Bun installation found.");
-    }
-
-    let marker = prefix().join(".active");
-    fs::remove_file(marker).ok();
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
