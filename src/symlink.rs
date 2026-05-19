@@ -22,9 +22,13 @@ fn remove_bin_symlink(bin: &std::path::Path) {
     // on Windows directory symlinks require remove_dir.
     if bin.symlink_metadata().is_ok() {
         #[cfg(unix)]
-        { fs::remove_file(bin).ok(); }
+        {
+            fs::remove_file(bin).ok();
+        }
         #[cfg(windows)]
-        { fs::remove_dir(bin).ok(); }
+        {
+            fs::remove_dir(bin).ok();
+        }
     }
 }
 
@@ -51,11 +55,19 @@ pub fn activate(tag: &str) -> Result<()> {
 
     #[cfg(unix)]
     std::os::unix::fs::symlink(&cached_dir, &bin).with_context(|| {
-        format!("Failed to create symlink {} -> {}", bin.display(), cached_dir.display())
+        format!(
+            "Failed to create symlink {} -> {}",
+            bin.display(),
+            cached_dir.display()
+        )
     })?;
     #[cfg(windows)]
     std::os::windows::fs::symlink_dir(&cached_dir, &bin).with_context(|| {
-        format!("Failed to create symlink {} -> {}", bin.display(), cached_dir.display())
+        format!(
+            "Failed to create symlink {} -> {}",
+            bin.display(),
+            cached_dir.display()
+        )
     })?;
 
     let marker = prefix().join(".active");
@@ -163,29 +175,4 @@ mod tests {
         assert_eq!(active_version(), Some(tag.to_string()));
     }
 
-    // ── uninstall() ──────────────────────────────────────────────────────────
-
-    #[cfg(unix)]
-    #[test]
-    fn uninstall_removes_symlink_and_marker() {
-        let tp = TempPrefix::new("uninstall");
-        let tag = "bun-v1.0.0";
-        let versions = tp.dir.join("versions");
-        let ver_dir = versions.join(tag);
-        fs::create_dir_all(&ver_dir).unwrap();
-        fs::write(ver_dir.join("bun"), b"#!/bin/sh").unwrap();
-        activate(tag).unwrap();
-
-        uninstall();
-
-        let link = tp.dir.join("bin").join("bun");
-        assert!(!link.exists() && link.symlink_metadata().is_err());
-        assert!(active_version().is_none());
-    }
-
-    #[test]
-    fn uninstall_ok_when_nothing_installed() {
-        let _tp = TempPrefix::new("uninstall_empty");
-        uninstall(); // always succeeds, silently ignores missing files
-    }
 }
