@@ -338,7 +338,7 @@ pub fn uninstall_self() -> Result<()> {
         .default(false)
         .interact()?;
     if !confirmed {
-        println!("Aborted.");
+        println!("{}", style("Aborted.").yellow());
         return Ok(());
     }
     println!("Uninstalling {}...", style(name).cyan().bold());
