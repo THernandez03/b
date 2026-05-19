@@ -1,5 +1,4 @@
 #![deny(clippy::all, clippy::pedantic, clippy::nursery)]
-#![allow(clippy::module_name_repetitions)]
 
 mod arch;
 mod cache;
