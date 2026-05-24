@@ -94,6 +94,9 @@ b rm bun-v1.0.0     # alias
 # Remove all cached versions except the active one
 b prune
 
+# Also remove the active version
+b prune --force
+
 # Show info
 b info
 
@@ -102,6 +105,7 @@ b update
 
 # Fully remove b + all cached versions (requires confirmation)
 b uninstall
+b uninstall --yes   # skip confirmation prompt
 ```
 
 ## Version Aliases

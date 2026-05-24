@@ -93,7 +93,8 @@ enum Commands {
     Info,
     /// Update b to the latest available version
     Update,
-    /// Uninstall b completely (removes cached versions, prefix, and the b binary)
+    /// Uninstall b completely (removes cached versions, prefix, and the b binary).
+    /// Use `--yes`/`-y` to skip the confirmation prompt.
     Uninstall {
         /// Skip the confirmation prompt.
         #[arg(short, long)]
