@@ -8,29 +8,164 @@ use console::style;
 
 use crate::{arch, cache, releases, symlink};
 
-/// Install a Bun version and activate it.
-pub fn install(version_str: &str) -> Result<()> {
-    let tag = releases::resolve_tag(version_str)?;
+/// Returns `true` if the input is a symbolic alias resolved entirely via network.
+fn is_alias(s: &str) -> bool {
+    matches!(
+        s,
+        "lts" | "stable" | "current" | "latest" | "canary" | "nightly" | "next" | "edge" | "beta"
+    )
+}
 
-    if symlink::active_version().as_deref() == Some(&tag) {
+/// Returns `true` if the input looks like a bare version number.
+fn looks_like_version(s: &str) -> bool {
+    s.starts_with(|c: char| c.is_ascii_digit())
+        && s.chars()
+            .all(|c| c.is_ascii_digit() || matches!(c, '.' | 'x' | 'X'))
+}
+
+/// Returns `true` if the input looks like a git commit SHA (7-40 hex chars
+/// with at least one letter `a`-`f`).
+fn is_sha_input(s: &str) -> bool {
+    let n = s.len();
+    (7..=40).contains(&n)
+        && s.chars().all(|c| c.is_ascii_hexdigit())
+        && s.chars().any(|c| matches!(c, 'a'..='f' | 'A'..='F'))
+}
+
+/// Extract the base version (before any `+sha`) and the optional SHA from a
+/// resolved tag. Also strips channel suffixes like `-canary.1` by splitting
+/// at the first `-`.
+fn extract_ver_sha(tag: &str) -> (String, Option<&str>) {
+    let (ver_part, sha) = tag
+        .split_once('+')
+        .map_or((tag, None), |(v, s)| (v, Some(s)));
+    let clean_ver = ver_part.split('-').next().unwrap_or(ver_part).to_string();
+    (clean_ver, sha)
+}
+
+/// Query the installed bun binary to determine the canonical cache key.
+/// Returns `(base_version, Some(sha9))` where `sha9` is the first 9 chars of
+/// the commit hash reported by `bun --revision`.
+fn query_binary_version(binary_path: &Path) -> Result<(String, Option<String>)> {
+    let ver_out = Command::new(binary_path)
+        .arg("--version")
+        .output()
+        .context("Failed to run bun --version")?;
+    let ver_raw = String::from_utf8_lossy(&ver_out.stdout);
+    let ver_str = ver_raw.trim();
+    // Strip channel suffix: "1.4.0-canary.1" → "1.4.0"
+    let base_version = ver_str.split('-').next().unwrap_or(ver_str);
+
+    let rev_out = Command::new(binary_path)
+        .arg("--revision")
+        .output()
+        .context("Failed to run bun --revision")?;
+    let sha_raw = String::from_utf8_lossy(&rev_out.stdout);
+    let rev_str = sha_raw.trim();
+    // `bun --revision` may output "1.4.0-canary.1+f161e0311"; take only the hash after `+`.
+    let hash_str = rev_str.split_once('+').map_or(rev_str, |(_, h)| h);
+    let short_sha = hash_str[..hash_str.len().min(9)].to_string();
+
+    Ok((base_version.to_string(), Some(short_sha)))
+}
+
+/// Activate an already-cached version (update the symlink).
+fn activate_cached(tag: &str) -> Result<()> {
+    if symlink::active_version().as_deref() == Some(tag) {
         println!(
             "{} Bun {} is already the active version.",
-            style("✓").green().bold(),
-            style(&tag).cyan().bold(),
+            style("\u{2713}").green().bold(),
+            style(tag).cyan().bold(),
         );
         return Ok(());
     }
+    let from = symlink::active_version();
+    match &from {
+        Some(f) => println!(
+            "{} Activating Bun {} \u{2192} {}...",
+            style("\u{25c6}").magenta(),
+            style(f).cyan().bold(),
+            style(tag).cyan().bold(),
+        ),
+        None => println!(
+            "{} Activating Bun {}...",
+            style("\u{25c6}").magenta(),
+            style(tag).cyan().bold(),
+        ),
+    }
+    symlink::activate(tag)?;
+    println!(
+        "{} Installed Bun {} successfully.",
+        style("\u{2713}").green().bold(),
+        style(tag).cyan().bold(),
+    );
+    Ok(())
+}
 
-    if cache::is_cached(&tag) {
-        println!(
-            "{} Bun {} is already cached.",
-            style("◆").dim(),
-            style(&tag).cyan(),
-        );
-    } else {
+/// Install a Bun version and activate it.
+pub fn install(version_str: &str) -> Result<()> {
+    let v = version_str.trim();
+
+    // 1. Pre-resolve cache check — skip network for version/SHA inputs
+    if !is_alias(v) {
+        // Passthrough for already-resolved canary tags like "1.4.0-canary.1+sha"
+        if v.contains('+') {
+            if cache::is_cached(v) {
+                return activate_cached(v);
+            }
+            let (ver_prefix, tag_sha) = extract_ver_sha(v);
+            if let Some(cached) = cache::find_by_version_prefix(&ver_prefix) {
+                let sha_ok = match (tag_sha, cache::cache_key_sha(&cached)) {
+                    (Some(ts), Some(cs)) => cache::sha_matches(cs, ts),
+                    (None, _) => true,
+                    (Some(_), None) => false,
+                };
+                if sha_ok {
+                    return activate_cached(&cached);
+                }
+            }
+        } else if is_sha_input(v) {
+            if let Some(cached) = cache::find_by_sha(v) {
+                return activate_cached(&cached);
+            }
+        } else if looks_like_version(v) {
+            let prefix = v.trim_end_matches(".x").trim_end_matches(".X");
+            if let Some(cached) = cache::find_by_version_prefix(prefix) {
+                return activate_cached(&cached);
+            }
+        }
+    }
+
+    // 2. Resolve via network
+    let tag = releases::resolve_tag(v)?;
+
+    // 3. Post-resolve cache check
+    {
+        let (ver_prefix, tag_sha) = extract_ver_sha(&tag);
+        if let Some(cached) = cache::find_by_version_prefix(&ver_prefix) {
+            let sha_ok = match (tag_sha, cache::cache_key_sha(&cached)) {
+                (Some(ts), Some(cs)) => cache::sha_matches(cs, ts),
+                (None, _) => true,
+                (Some(_), None) => false,
+            };
+            if sha_ok {
+                return activate_cached(&cached);
+            }
+        }
+        // Alias tags (e.g. "canary+sha") resolve with a known SHA but an
+        // unpredictable version prefix — search by SHA directly.
+        if let Some(ts) = tag_sha {
+            if let Some(cached) = cache::find_by_sha(ts) {
+                return activate_cached(&cached);
+            }
+        }
+    }
+
+    // 4. Download if not already cached
+    if !cache::is_cached(&tag) {
         println!(
             "{} Downloading Bun {}...",
-            style("⬇").cyan(),
+            style("\u{2b07}").cyan(),
             style(&tag).cyan().bold(),
         );
         let tgt = arch::target();
@@ -38,32 +173,63 @@ pub fn install(version_str: &str) -> Result<()> {
         download_version(&url, &tag)?;
     }
 
-    let from = symlink::active_version();
-    match &from {
-        Some(f) => println!(
-            "{} Activating Bun {} → {}...",
-            style("◆").magenta(),
-            style(f).cyan().bold(),
-            style(&tag).cyan().bold(),
-        ),
-        None => println!(
-            "{} Activating Bun {}...",
-            style("◆").magenta(),
-            style(&tag).cyan().bold(),
-        ),
+    // 5. Query the installed binary to get the canonical cache key
+    let binary = cache::bun_binary(&tag);
+    let canonical = match query_binary_version(&binary) {
+        Ok((ver, sha_opt)) => sha_opt.map_or_else(|| ver.clone(), |s| format!("{ver}+{s}")),
+        Err(_) => tag.clone(),
+    };
+    if canonical != tag {
+        cache::rename_version(&tag, &canonical)?;
     }
-    symlink::activate(&tag)?;
-    println!(
-        "{} Installed Bun {} successfully.",
-        style("✓").green().bold(),
-        style(&tag).cyan().bold(),
-    );
-    Ok(())
+
+    activate_cached(&canonical)
 }
 
 /// Download a version into cache without activating.
 pub fn download_only(version_str: &str) -> Result<()> {
-    let tag = releases::resolve_tag(version_str)?;
+    let v = version_str.trim();
+
+    // Pre-resolve cache check
+    if !is_alias(v) {
+        if is_sha_input(v) {
+            if let Some(cached) = cache::find_by_sha(v) {
+                println!("Version {cached} is already cached.");
+                return Ok(());
+            }
+        } else if looks_like_version(v) {
+            let prefix = v.trim_end_matches(".x").trim_end_matches(".X");
+            if let Some(cached) = cache::find_by_version_prefix(prefix) {
+                println!("Version {cached} is already cached.");
+                return Ok(());
+            }
+        }
+    }
+
+    let tag = releases::resolve_tag(v)?;
+
+    // Post-resolve cache check
+    {
+        let (ver_prefix, tag_sha) = extract_ver_sha(&tag);
+        if let Some(cached) = cache::find_by_version_prefix(&ver_prefix) {
+            let sha_ok = match (tag_sha, cache::cache_key_sha(&cached)) {
+                (Some(ts), Some(cs)) => cache::sha_matches(cs, ts),
+                (None, _) => true,
+                (Some(_), None) => false,
+            };
+            if sha_ok {
+                println!("Version {cached} is already cached.");
+                return Ok(());
+            }
+        }
+        if let Some(ts) = tag_sha {
+            if let Some(cached) = cache::find_by_sha(ts) {
+                println!("Version {cached} is already cached.");
+                return Ok(());
+            }
+        }
+    }
+
     if cache::is_cached(&tag) {
         println!("Version {tag} is already cached.");
         return Ok(());
@@ -71,26 +237,82 @@ pub fn download_only(version_str: &str) -> Result<()> {
     println!("Downloading Bun {tag}...");
     let tgt = arch::target();
     let url = arch::download_url(&tag, tgt);
-    download_version(&url, &tag)
+    download_version(&url, &tag)?;
+    let binary = cache::bun_binary(&tag);
+    if let Ok((ver, sha_opt)) = query_binary_version(&binary) {
+        let canonical = sha_opt.map_or_else(|| ver.clone(), |s| format!("{ver}+{s}"));
+        if canonical != tag {
+            cache::rename_version(&tag, &canonical)?;
+        }
+    }
+    Ok(())
 }
 
 /// Run a cached Bun version with given arguments.
 pub fn run(version_str: &str, args: &[String]) -> Result<()> {
-    let tag = releases::resolve_tag(version_str)?;
+    let v = version_str.trim();
 
-    if !cache::is_cached(&tag) {
-        println!("Version {tag} is not cached. Downloading...");
-        let tgt = arch::target();
-        let url = arch::download_url(&tag, tgt);
-        download_version(&url, &tag)?;
+    // Pre-resolve cache check
+    if !is_alias(v) {
+        if is_sha_input(v) {
+            if let Some(cached) = cache::find_by_sha(v) {
+                return run_cached(&cached, args);
+            }
+        } else if looks_like_version(v) {
+            let prefix = v.trim_end_matches(".x").trim_end_matches(".X");
+            if let Some(cached) = cache::find_by_version_prefix(prefix) {
+                return run_cached(&cached, args);
+            }
+        }
     }
 
-    let binary = cache::bun_binary(&tag);
+    let tag = releases::resolve_tag(v)?;
+
+    // Post-resolve cache check
+    let resolved_tag = {
+        let (ver_prefix, tag_sha) = extract_ver_sha(&tag);
+        if let Some(cached) = cache::find_by_version_prefix(&ver_prefix) {
+            let sha_ok = match (tag_sha, cache::cache_key_sha(&cached)) {
+                (Some(ts), Some(cs)) => cache::sha_matches(cs, ts),
+                (None, _) => true,
+                (Some(_), None) => false,
+            };
+            if sha_ok {
+                return run_cached(&cached, args);
+            }
+        }
+        if let Some(ts) = tag_sha {
+            if let Some(cached) = cache::find_by_sha(ts) {
+                return run_cached(&cached, args);
+            }
+        }
+        tag
+    };
+
+    if !cache::is_cached(&resolved_tag) {
+        println!("Version {resolved_tag} is not cached. Downloading...");
+        let tgt = arch::target();
+        let url = arch::download_url(&resolved_tag, tgt);
+        download_version(&url, &resolved_tag)?;
+    }
+
+    let binary = cache::bun_binary(&resolved_tag);
+    let canonical = match query_binary_version(&binary) {
+        Ok((ver, sha_opt)) => sha_opt.map_or_else(|| ver.clone(), |s| format!("{ver}+{s}")),
+        Err(_) => resolved_tag.clone(),
+    };
+    if canonical != resolved_tag {
+        cache::rename_version(&resolved_tag, &canonical)?;
+    }
+    run_cached(&canonical, args)
+}
+
+fn run_cached(tag: &str, args: &[String]) -> Result<()> {
+    let binary = cache::bun_binary(tag);
     let status = Command::new(&binary)
         .args(args)
         .status()
         .with_context(|| format!("Failed to run bun {tag}"))?;
-
     if !status.success() {
         std::process::exit(status.code().unwrap_or(1));
     }
@@ -200,7 +422,19 @@ fn flatten_bun_dir(dir: &Path) -> Result<()> {
 /// Remove a cached version, or prompt for interactive selection if no version is given.
 pub fn remove_version(version: Option<String>) -> Result<()> {
     if let Some(v) = version {
-        cache::remove(&v)?;
+        if cache::is_cached(&v) {
+            cache::remove(&v)?;
+        } else if is_sha_input(&v) {
+            if let Some(matched) = cache::find_by_sha(&v) {
+                cache::remove(&matched)?;
+            } else {
+                println!("Version '{v}' is not cached.");
+            }
+        } else if let Some(matched) = cache::find_by_version_prefix(&v) {
+            cache::remove(&matched)?;
+        } else {
+            println!("Version '{v}' is not cached.");
+        }
         return Ok(());
     }
     let versions = cache::cached_versions()?;
@@ -329,17 +563,19 @@ pub fn update_self() -> Result<()> {
 }
 
 /// Uninstall this version manager completely (removes cache, prefix directory, and the binary).
-pub fn uninstall_self() -> Result<()> {
+pub fn uninstall_self(yes: bool) -> Result<()> {
     let name = env!("CARGO_PKG_NAME");
-    let confirmed = dialoguer::Confirm::new()
-        .with_prompt(format!(
-            "This will remove all cached versions and the {name} binary. Continue?"
-        ))
-        .default(false)
-        .interact()?;
-    if !confirmed {
-        println!("{}", style("Aborted.").yellow());
-        return Ok(());
+    if !yes {
+        let confirmed = dialoguer::Confirm::new()
+            .with_prompt(format!(
+                "This will remove all cached versions and the {name} binary. Continue?"
+            ))
+            .default(false)
+            .interact()?;
+        if !confirmed {
+            println!("{}", style("Aborted.").yellow());
+            return Ok(());
+        }
     }
     println!("Uninstalling {}...", style(name).cyan().bold());
     let prefix = symlink::prefix();
@@ -360,4 +596,157 @@ pub fn uninstall_self() -> Result<()> {
             .map_or_else(String::new, |p| p.display().to_string())
     );
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use std::sync::Mutex;
+
+    static ENV_LOCK: Mutex<()> = Mutex::new(());
+
+    fn with_temp_dirs<F: FnOnce(&std::path::Path, &std::path::Path)>(f: F) {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let cache = tempfile::tempdir().expect("tempdir");
+        let prefix = tempfile::tempdir().expect("tempdir");
+        std::env::set_var("B_CACHE_DIR", cache.path());
+        std::env::set_var("B_PREFIX", prefix.path());
+        f(cache.path(), prefix.path());
+        std::env::remove_var("B_CACHE_DIR");
+        std::env::remove_var("B_PREFIX");
+    }
+
+    // ── download_only cache hit ─────────────────────────────────────
+
+    #[test]
+    fn download_only_skips_if_already_cached() {
+        with_temp_dirs(|cache, _prefix| {
+            // Bun binary path: {cache}/{tag}/bun (no bin/ subdir).
+            // resolve_tag("1.1.0") returns "1.1.0" without network (exact 3-part semver).
+            let vdir = cache.join("1.1.0");
+            fs::create_dir_all(&vdir).unwrap();
+            fs::write(vdir.join("bun"), b"fake").unwrap();
+            let result = download_only("1.1.0");
+            assert!(
+                result.is_ok(),
+                "should skip download when cached: {result:?}"
+            );
+        });
+    }
+
+    // ── is_alias ───────────────────────────────────────────────────
+
+    #[test]
+    fn is_alias_known_aliases() {
+        assert!(is_alias("lts"));
+        assert!(is_alias("stable"));
+        assert!(is_alias("current"));
+        assert!(is_alias("latest"));
+        assert!(is_alias("canary"));
+        assert!(is_alias("nightly"));
+        assert!(is_alias("next"));
+        assert!(is_alias("edge"));
+        assert!(is_alias("beta"));
+    }
+
+    #[test]
+    fn is_alias_version_not_alias() {
+        assert!(!is_alias("1.1.0"));
+        assert!(!is_alias("abc1234d"));
+        assert!(!is_alias(""));
+    }
+
+    // ── looks_like_version ──────────────────────────────────────────
+
+    #[test]
+    fn looks_like_version_semver() {
+        assert!(looks_like_version("1.1.0"));
+        assert!(looks_like_version("2.0.0"));
+    }
+
+    #[test]
+    fn looks_like_version_x_notation() {
+        assert!(looks_like_version("1.x"));
+        assert!(looks_like_version("1.1.X"));
+    }
+
+    #[test]
+    fn looks_like_version_non_versions() {
+        assert!(!looks_like_version("canary"));
+        assert!(!looks_like_version("v1.2.3"));
+        assert!(!looks_like_version("abc1234d"));
+    }
+
+    // ── is_sha_input ───────────────────────────────────────────────
+
+    #[test]
+    fn is_sha_input_valid() {
+        assert!(is_sha_input("abc1234d"));
+        assert!(is_sha_input("abc1234def5678"));
+    }
+
+    #[test]
+    fn is_sha_input_too_short() {
+        assert!(!is_sha_input("abc123"));
+    }
+
+    #[test]
+    fn is_sha_input_all_digits_rejected() {
+        assert!(!is_sha_input("12345678"));
+    }
+
+    #[test]
+    fn is_sha_input_non_hex_rejected() {
+        assert!(!is_sha_input("abc1234g"));
+    }
+
+    // ── extract_ver_sha ─────────────────────────────────────────────
+
+    #[test]
+    fn extract_ver_sha_with_sha() {
+        let (ver, sha) = extract_ver_sha("1.1.0+abc1234def");
+        assert_eq!(ver, "1.1.0");
+        assert_eq!(sha, Some("abc1234def"));
+    }
+
+    #[test]
+    fn extract_ver_sha_without_sha() {
+        let (ver, sha) = extract_ver_sha("1.1.0");
+        assert_eq!(ver, "1.1.0");
+        assert!(sha.is_none());
+    }
+
+    #[test]
+    fn extract_ver_sha_strips_channel_suffix() {
+        let (ver, sha) = extract_ver_sha("1.1.0-canary.5+abc1234de");
+        assert_eq!(ver, "1.1.0");
+        assert_eq!(sha, Some("abc1234de"));
+    }
+
+    #[test]
+    fn extract_ver_sha_channel_no_sha() {
+        let (ver, sha) = extract_ver_sha("1.1.0-canary.5");
+        assert_eq!(ver, "1.1.0");
+        assert!(sha.is_none());
+    }
+
+    #[test]
+    fn extract_ver_sha_alias_with_sha() {
+        // resolve_tag("latest") returns "canary+{sha}" — the alias name becomes the
+        // version prefix. find_by_version_prefix("canary") finds nothing, so the
+        // post-resolve check falls back to find_by_sha to locate cached versions.
+        let (ver, sha) = extract_ver_sha("canary+f161e0311");
+        assert_eq!(ver, "canary");
+        assert_eq!(sha, Some("f161e0311"));
+    }
+
+    #[test]
+    fn extract_ver_sha_bun_revision_format() {
+        // bun --revision outputs "1.4.0-canary.1+f161e0311"; this is the full
+        // tag form stored in the cache after stripping the channel suffix.
+        let (ver, sha) = extract_ver_sha("1.4.0-canary.1+f161e0311");
+        assert_eq!(ver, "1.4.0");
+        assert_eq!(sha, Some("f161e0311"));
+    }
 }

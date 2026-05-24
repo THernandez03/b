@@ -31,14 +31,20 @@ pub const fn target() -> &'static str {
 }
 
 /// Download URL for a specific Bun release tag and target.
-/// `tag` must be a resolved GitHub release tag like `bun-v1.2.3` or `canary`.
+/// `tag` is either a bare version like `1.2.3`, a canary key like
+/// `1.4.0-canary.1+abc123def`, or the legacy `canary-{sha}` / `canary` forms.
 pub fn download_url(tag: &str, tgt: &str) -> String {
     let base = "https://github.com/oven-sh/bun/releases";
-    // Cache keys for canary are "canary-{sha}"; the download release tag is always "canary".
-    let release_tag = if tag == "canary" || tag.starts_with("canary-") {
+    // Canary formats: "1.4.0-canary.1+sha", "canary-{sha}", or bare "canary".
+    let release_tag = if tag == "canary"
+        || tag.starts_with("canary-")
+        || tag.contains("-canary")
+        || tag.contains('+')
+    {
         "canary"
     } else {
-        tag
+        // Stable bare version like "1.3.14" — the GitHub release tag is "bun-v{version}".
+        return format!("{base}/download/bun-v{tag}/bun-{tgt}.zip");
     };
     format!("{base}/download/{release_tag}/bun-{tgt}.zip")
 }
@@ -81,7 +87,7 @@ mod tests {
 
     #[test]
     fn download_url_versioned_tag() {
-        let url = download_url("bun-v1.1.0", "darwin-aarch64");
+        let url = download_url("1.1.0", "darwin-aarch64");
         assert!(
             url.contains("/download/bun-v1.1.0/bun-darwin-aarch64.zip"),
             "unexpected url: {url}"
@@ -90,13 +96,22 @@ mod tests {
 
     #[test]
     fn download_url_starts_with_github() {
-        let url = download_url("bun-v1.0.0", "linux-x64");
+        let url = download_url("1.0.0", "linux-x64");
         assert!(url.starts_with("https://github.com/oven-sh/bun/releases"));
     }
 
     #[test]
     fn download_url_ends_with_zip() {
-        let url = download_url("bun-v1.0.0", "linux-x64");
+        let url = download_url("1.0.0", "linux-x64");
         assert!(url.to_ascii_lowercase().ends_with(".zip"));
+    }
+
+    #[test]
+    fn download_url_canary_version_plus_sha() {
+        let url = download_url("1.4.0-canary.1+abc123def", "linux-x64");
+        assert!(
+            url.contains("/download/canary/bun-linux-x64.zip"),
+            "unexpected url: {url}"
+        );
     }
 }

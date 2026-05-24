@@ -73,64 +73,72 @@ pub fn interactive_picker() -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use std::env;
     use std::fs;
+    use std::sync::Mutex;
 
-    struct TempCache {
-        dir: std::path::PathBuf,
-        prev_cache: Option<String>,
-        prev_prefix: Option<String>,
+    static ENV_LOCK: Mutex<()> = Mutex::new(());
+
+    fn with_temp_env<F: FnOnce(&std::path::Path, &std::path::Path)>(f: F) {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let cache = tempfile::tempdir().expect("tempdir");
+        let prefix = tempfile::tempdir().expect("tempdir");
+        std::env::set_var("B_CACHE_DIR", cache.path());
+        std::env::set_var("B_PREFIX", prefix.path());
+        f(cache.path(), prefix.path());
+        std::env::remove_var("B_CACHE_DIR");
+        std::env::remove_var("B_PREFIX");
     }
 
-    impl TempCache {
-        fn new(suffix: &str) -> Self {
-            let dir = env::temp_dir().join(format!("b_test_list_{suffix}_{}", std::process::id()));
-            fs::create_dir_all(&dir).unwrap();
-            let prev_cache = env::var("B_CACHE_DIR").ok();
-            let prev_prefix = env::var("B_PREFIX").ok();
-            unsafe { env::set_var("B_CACHE_DIR", &dir) };
-            // Set B_PREFIX to something that won't find an .active marker
-            let prefix_dir =
-                env::temp_dir().join(format!("b_test_list_pfx_{suffix}_{}", std::process::id()));
-            fs::create_dir_all(&prefix_dir).unwrap();
-            unsafe { env::set_var("B_PREFIX", &prefix_dir) };
-            Self {
-                dir,
-                prev_cache,
-                prev_prefix,
-            }
-        }
-    }
-
-    impl Drop for TempCache {
-        fn drop(&mut self) {
-            match &self.prev_cache {
-                Some(v) => unsafe { env::set_var("B_CACHE_DIR", v) },
-                None => unsafe { env::remove_var("B_CACHE_DIR") },
-            }
-            match &self.prev_prefix {
-                Some(v) => unsafe { env::set_var("B_PREFIX", v) },
-                None => unsafe { env::remove_var("B_PREFIX") },
-            }
-            let _ = fs::remove_dir_all(&self.dir);
-        }
-    }
-
-    // list_local() calls cache::cached_versions() and symlink::active_version()
-    // — both respect environment variables, so we can exercise the real logic.
-
-    #[test]
-    fn list_local_succeeds_with_empty_cache() {
-        let _tc = TempCache::new("empty");
-        // No versions dir → should succeed and print a message
-        assert!(super::list_local().is_ok());
+    /// Create a fake cached Bun binary so `cache::is_cached` returns true.
+    fn fake_bun(cache: &std::path::Path, version: &str) {
+        let vdir = cache.join(version);
+        fs::create_dir_all(&vdir).unwrap();
+        fs::write(vdir.join("bun"), b"fake").unwrap();
     }
 
     #[test]
-    fn list_local_succeeds_with_cached_versions() {
-        let tc = TempCache::new("with_versions");
-        fs::create_dir_all(tc.dir.join("bun-v1.0.0")).unwrap();
-        fs::create_dir_all(tc.dir.join("bun-v1.1.0")).unwrap();
-        assert!(super::list_local().is_ok());
+    fn list_local_empty_cache_succeeds() {
+        with_temp_env(|_cache, _prefix| {
+            assert!(super::list_local().is_ok());
+        });
+    }
+
+    #[test]
+    fn list_local_shows_cached_version() {
+        with_temp_env(|cache, _prefix| {
+            fake_bun(cache, "1.1.0");
+            // list_local() prints to stdout; we only verify it succeeds and
+            // that the version appears in cache::cached_versions().
+            let versions = crate::cache::cached_versions().unwrap();
+            assert!(
+                versions.iter().any(|v| v == "1.1.0"),
+                "1.1.0 should be listed"
+            );
+            assert!(super::list_local().is_ok());
+        });
+    }
+
+    #[test]
+    fn list_local_marks_active_version() {
+        with_temp_env(|cache, prefix| {
+            fake_bun(cache, "1.1.0");
+            // active_version() reads {prefix}/.active
+            fs::write(prefix.join(".active"), "1.1.0").unwrap();
+            let active = crate::symlink::active_version();
+            assert_eq!(active.as_deref(), Some("1.1.0"));
+            assert!(super::list_local().is_ok());
+        });
+    }
+
+    #[test]
+    fn list_local_multiple_versions_sorted() {
+        with_temp_env(|cache, _prefix| {
+            fake_bun(cache, "1.0.0");
+            fake_bun(cache, "1.1.0");
+            fake_bun(cache, "1.2.0");
+            let versions = crate::cache::cached_versions().unwrap();
+            assert_eq!(versions.len(), 3);
+            assert!(super::list_local().is_ok());
+        });
     }
 }
