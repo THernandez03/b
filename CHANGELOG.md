@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.1](https://github.com/THernandez03/b/compare/b-v0.5.0...b-v0.5.1) (2026-05-24)
+
+
+### Bug Fixes
+
+* 🐛 Strip name prefix from self-update version tag ([5a2e1bf](https://github.com/THernandez03/b/commit/5a2e1bf6b4add2192280bc9d0d60c5380d48355e))
+
 ## [0.5.0](https://github.com/THernandez03/b/compare/b-v0.4.0...b-v0.5.0) (2026-05-24)
 
 
