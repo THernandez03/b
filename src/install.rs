@@ -73,8 +73,9 @@ fn query_binary_version(binary_path: &Path) -> Result<(String, Option<String>)> 
 fn activate_cached(tag: &str) -> Result<()> {
     if symlink::active_version().as_deref() == Some(tag) {
         println!(
-            "{} Bun {} is already the active version.",
+            "{} {} {} is already the active version.",
             style("\u{2713}").green().bold(),
+            style("Bun").color256(220).bold(),
             style(tag).cyan().bold(),
         );
         return Ok(());
@@ -82,21 +83,24 @@ fn activate_cached(tag: &str) -> Result<()> {
     let from = symlink::active_version();
     match &from {
         Some(f) => println!(
-            "{} Activating Bun {} \u{2192} {}...",
+            "{} Activating {} {} \u{2192} {}...",
             style("\u{25c6}").magenta(),
+            style("Bun").color256(220).bold(),
             style(f).cyan().bold(),
             style(tag).cyan().bold(),
         ),
         None => println!(
-            "{} Activating Bun {}...",
+            "{} Activating {} {}...",
             style("\u{25c6}").magenta(),
+            style("Bun").color256(220).bold(),
             style(tag).cyan().bold(),
         ),
     }
     symlink::activate(tag)?;
     println!(
-        "{} Installed Bun {} successfully.",
+        "{} Installed {} {} successfully.",
         style("\u{2713}").green().bold(),
+        style("Bun").color256(220).bold(),
         style(tag).cyan().bold(),
     );
     Ok(())
@@ -164,8 +168,9 @@ pub fn install(version_str: &str) -> Result<()> {
     // 4. Download if not already cached
     if !cache::is_cached(&tag) {
         println!(
-            "{} Downloading Bun {}...",
+            "{} Downloading {} {}...",
             style("\u{2b07}").cyan(),
+            style("Bun").color256(220).bold(),
             style(&tag).cyan().bold(),
         );
         let tgt = arch::target();
@@ -234,7 +239,7 @@ pub fn download_only(version_str: &str) -> Result<()> {
         println!("Version {tag} is already cached.");
         return Ok(());
     }
-    println!("Downloading Bun {tag}...");
+    println!("Downloading {} {tag}...", style("Bun").color256(220).bold());
     let tgt = arch::target();
     let url = arch::download_url(&tag, tgt);
     download_version(&url, &tag)?;
@@ -493,7 +498,7 @@ fn strip_version_tag<'a>(tag: &'a str, name: &str) -> &'a str {
 /// Self-update this version manager binary to the latest GitHub release.
 pub fn update_self() -> Result<()> {
     let name = env!("CARGO_PKG_NAME");
-    println!("{} Checking for {} updates...", style("◆").cyan(), name);
+    println!("{} Checking for {} updates...", style("◆").cyan(), style(name).color256(220).bold());
     let client = reqwest::blocking::Client::new();
     let release: serde_json::Value = client
         .get(format!(
@@ -513,7 +518,7 @@ pub fn update_self() -> Result<()> {
         println!(
             "{} {} is already up to date ({})",
             style("✓").green().bold(),
-            name,
+            style(name).color256(220).bold(),
             style(current).cyan().bold()
         );
         return Ok(());
@@ -521,7 +526,7 @@ pub fn update_self() -> Result<()> {
     println!(
         "{} Updating {} {} \u{2192} {}...",
         style("⬇").cyan(),
-        name,
+        style(name).color256(220).bold(),
         style(current).dim(),
         style(remote).cyan().bold()
     );
@@ -561,7 +566,7 @@ pub fn update_self() -> Result<()> {
     println!(
         "{} {} updated to {}.",
         style("✓").green().bold(),
-        name,
+        style(name).color256(220).bold(),
         style(remote).cyan().bold()
     );
     Ok(())
@@ -582,7 +587,7 @@ pub fn uninstall_self(yes: bool) -> Result<()> {
             return Ok(());
         }
     }
-    println!("Uninstalling {}...", style(name).cyan().bold());
+    println!("Uninstalling {}...", style(name).color256(220).bold());
     let prefix = symlink::prefix();
     if prefix.exists() {
         fs::remove_dir_all(&prefix)
