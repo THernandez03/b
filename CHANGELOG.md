@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.0](https://github.com/THernandez03/b/compare/v0.6.0...v0.7.0) (2026-06-29)
+
+
+### Features
+
+* ✨ Gold-colored version manager and program names in output ([3869d5b](https://github.com/THernandez03/b/commit/3869d5bc7da95d941e7f29cd326f3c760bcde1c3))
+
 ## [0.6.0](https://github.com/THernandez03/b/compare/v0.5.1...v0.6.0) (2026-05-24)
 
 
